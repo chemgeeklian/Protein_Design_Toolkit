@@ -32,19 +32,16 @@ def seq2int(
     aa_to_int_dic = dict((c, i) for i, c in enumerate(amino_acids))
     max_length = max(len(seq) for seq in seqs)
 
-    integer_array = []
+    integer_array = np.empty([len(seqs), max_length])
 
-    for seq in seqs:
+    for i, seq in enumerate(seqs):
         if   pad_side == 'right': seq = seq.ljust(max_length, '-')
         elif pad_side == 'left' : seq = seq.rjust(max_length, '-')
         else:
             raise ValueError("Invalid padd_side value. It should be either 'right' or 'left'.")
 
         # Replace each character in the sequence with its corresponding integer
-        integer_encoded = [aa_to_int_dic[aa] for aa in seq]
-        integer_array.append(integer_encoded)
-
-    integer_array = np.array(integer_array)
+        integer_array[i, :] = np.array([aa_to_int_dic[aa] for aa in seq])
 
     if batch_first:
         return integer_array
@@ -58,7 +55,8 @@ def one_hot_encode(
     aa_list='-ACDEFGHIKLMNPQRSTVWY',
     pad_side='right',
     check_aa_z=True,
-    seq_len_last=False # For nn.conv1D input
+    seq_len_last=False, # For nn.conv1D input
+    input_logits = False
     ):
 
     '''
@@ -68,16 +66,22 @@ def one_hot_encode(
     
     batch_first = True
     args = seq_column, aa_list, pad_side, check_aa_z, batch_first
-    integer_encoded = seq2int(sequences, *args)
 
-    one_hot_encoded = []
+    if input_logits:
+        if isinstance(sequences, torch.Tensor):
+            integer_encoded = sequences.detach().cpu().numpy().copy()
+        else: 
+            integer_encoded = sequences.copy()
+    else:
+        integer_encoded = seq2int(sequences, *args)
+
+    one_hot_encoded = np.empty([integer_encoded.shape[0], 
+                                integer_encoded.shape[1], 
+                                21])
         
-    for seq in integer_encoded:
+    for i, seq in enumerate(integer_encoded):
         # Convert to one-hot with np.eye
-        one_hot = np.eye(len(aa_list))[seq]
-        one_hot_encoded.append(one_hot)
-
-    one_hot_encoded = np.array(one_hot_encoded)
+        one_hot_encoded[i, :, :] = np.eye(len(aa_list))[seq]
     
     if seq_len_last:
         return np.transpose(one_hot_encoded, (0, 2, 1)) 
