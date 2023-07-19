@@ -87,3 +87,71 @@ def one_hot_encode(
         return np.transpose(one_hot_encoded, (0, 2, 1)) 
     else:
         return one_hot_encoded
+
+
+class one_hot_dataloader:
+    def __init__(self, 
+                 sequence_data, 
+                 label_data=None, 
+                 test_size=0.15, 
+                 batch_size=32,
+                 normalize_label = True,
+                 device=None):
+        self.sequence_data = sequence_data
+        self.label_data = label_data
+        self.test_size = test_size
+        self.batch_size = batch_size
+        self.normalize_label = normalize_label
+        if device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            self.device = device
+
+    def normalize_y(self, y):
+        if isinstance(y, pd.DataFrame):
+            return y.apply(lambda x: (x - np.nanmin(x)) / (np.nanmax(x) - np.nanmin(x)), axis=0)
+        elif isinstance(y, pd.Series):
+            return (y - np.nanmin(y)) / (np.nanmax(y) - np.nanmin(y))
+        elif isinstance(y, np.ndarray):
+            return (y - np.nanmin(y, axis=0)) / (np.nanmax(y, axis=0) - np.nanmin(y, axis=0))
+        else:
+            raise ValueError("Input y must be a pandas DataFrame, Series, or a numpy array.")
+
+    def split_data(self, X, y=None):
+        indices = np.arange(X.shape[0]) # assuming X is a numpy array or pandas dataframe
+        if y is None:
+            X_train, X_val, train_id, val_id = train_test_split(X, indices, test_size=self.test_size, random_state=0)
+            return X_train, X_val, train_id, val_id
+        else:
+            X_train, X_val, y_train, y_val, train_id, val_id = train_test_split(X, y, indices, test_size=self.test_size, random_state=0)
+            return X_train, X_val, y_train, y_val, train_id, val_id
+
+    def np_data(self):
+        X = one_hot_encode(self.sequence_data)
+        
+        if self.label_data is not None:
+            y = self.label_data
+            if self.normalize_label:
+                y = self.normalize_y(y).values
+            return X, y
+        else:
+            return X
+
+    def load_data(self):
+        if self.label_data is not None:
+            X, y = self.np_data()
+            X = torch.FloatTensor(X).to(self.device)
+            y = torch.FloatTensor(y).to(self.device)
+
+            X_train, X_val, y_train, y_val, train_id, val_id = self.split_data(X, y)
+            train_dataset = TensorDataset(X_train, y_train)
+            val_dataset = TensorDataset(X_val, y_val)
+        else:
+            X = self.np_data()
+            X = torch.FloatTensor(X).to(self.device)
+            train_dataset, val_dataset, train_id, val_id = self.split_data(X)
+
+        self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
+        self.val_loader = DataLoader(val_dataset, batch_size=self.batch_size)
+
+        return self.train_loader, self.val_loader, train_id, val_id
